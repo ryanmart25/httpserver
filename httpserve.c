@@ -3,11 +3,23 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <netinet/in.h>
 #include "httpserve.h"
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <errno.h>
 // #define BUFFER_SIZE 1024
+const char *get_file_name( char *path) {
+    int i = 0;
+    char *lastslash = NULL;
+    for(i = 0; path[i] != '\0'; i++) {
+        if(path[i] == '/') {
+            lastslash = path + i;
+        }
+    }
+    return lastslash;
+}
 int readAndCompare(int fd) // this is a method i made. I was tired of writing.
 {
     char buffer[BUFFER_SIZE];
@@ -140,22 +152,22 @@ void process_request(int client_sock)
     // check for the bad file strings
     if (strstr(request, "../") != NULL)
     {
-        char *malformed = "HTTP/1.1 400 Bad Request\0";
+        char *malformed = "HTTP/1.1 400 Bad Request\r\n";
          rc1 = send(client_sock, malformed, strlen(malformed), 0);
         if (rc1 == -1)
         {
             fprintf(stderr, "%s", strerror(errno)); // error check and close
-            close(client_sock);
+            return;
         }
     }
     if (strstr(request, "//") != NULL)
     {
-        char *malformed = "HTTP/1.1 400 Bad Request\0";
+        char *malformed = "HTTP/1.1 400 Bad Request\r\n";
          rc1 = send(client_sock, malformed, strlen(malformed), 0);
         if (rc1 == -1)
         {
             fprintf(stderr, "%s", strerror(errno)); // error check and close
-            close(client_sock);
+            return;
         }
     }
     if (rc1 == -1) // error check
@@ -182,14 +194,15 @@ void process_request(int client_sock)
         // then, carve another substring out of that substring starting at the end of the path.
         // i have the start of the path, i can get the start of the protocol version. the end of the path is protocol version -1
         char path[BUFFER_SIZE];
-        char method[4];
+        //char method[4];
         char protocol[BUFFER_SIZE];
-        char *startofmethod = request; // i could not do this, it is roundabout, but to me its a little more readable.
+         // i could not do this, it is roundabout, but to me its a little more readable.
         // searching for the first occurences of various characters or strings lets me carve up the request. I can figure out where to put null terminating characters from there, and then pass those pointers off to wherever I need them.
-        char *startofpath = strstr( request, "/");
+        printf("Line: 190. starting pointer allocation. Parsing start of path.\n");
+        char *startofpath = strchr(request, '/');
         if (startofpath == NULL)
         { // send a malformed request response.
-            char *malformed = "HTTP/1.1 400 Bad Request\0";
+            char *malformed = "HTTP/1.1 400 Bad Request\r\n";
              rc1 = send(client_sock, malformed, strlen(malformed), 0);
             if (rc1 == -1)
             {
@@ -197,25 +210,19 @@ void process_request(int client_sock)
                 close(client_sock);
             }
         }
-        printf("succesfully parsed path\n");
-        char *endofmethod = startofpath - 1;
-        printf("succesfully parsed end of method\n");
-        *endofmethod = '\0';
-        printf("succesfully inserted null terminating character\n");
-        char *version = strstr( startofpath, "HTTP");
-        printf("succesfully parsed version\n");
-        char *endofpath = version - 1;
-        printf("succesfully parsed end of path\n");
-        *endofpath = '\0';
-        printf("succesfully inserted null terminating character\n");
 
+        char *endofpath = strchr(startofpath, ' ');
+        printf("Line: 204. Inserting null character for end of path\n");
+        *endofpath = 0;
+        char *version = endofpath + 1;
+        //char *sp = request;
+        char *endofmethod = strchr(request, ' ');
+        printf("Line: 209. Inserting null character for end of method\n");
+        *endofmethod = 0;
         // put the data into buffers. (fancy cool method i found on the interwebs: https://cplusplus.com/reference/cstdio/snprintf/)
         int n = snprintf(path, BUFFER_SIZE - 1, "%s", startofpath);
-        printf("succesfully passed line 213\n");
-        n = snprintf(method, 4, "%s", startofmethod);
-        printf("succesfully passed line 215\n");
+        //n = snprintf(method, 4, "%s", request);
         n = snprintf(protocol, BUFFER_SIZE - 1, "%s", version);
-        printf("succesfully passed line 217\n");
         if (n < 0)
         {
             fprintf(stderr, "Error writing request to buffers\n");
@@ -224,9 +231,9 @@ void process_request(int client_sock)
         printf("succesfully wrote to buffers. about to handle request\n");
         handle_get_request(client_sock, startofpath); // handle the request
         printf("succesfully handled get request\n");
-        close(client_sock);
+        return;
     }
-    //else if (strncmp(request, post, 5) == 0) // TODO if it is a post request
+    /*else if (strncmp(request, post, 5) == 0) // TODO if it is a post request
     //{
     //    // set up some buffers, now that i've put null terminating characters in things, I'm wondering if this is necessary
     //    char path[BUFFER_SIZE];
@@ -307,14 +314,14 @@ void process_request(int client_sock)
     //    }
     //    handle_head_request(client_sock, ps + 5); // send a bad request response;
     //    close(client_sock);
-    //}
+    *///}
     // TODO: gracefully decline malformed requests. Send a malformed request response with the send response method.
-    char *malformed = "HTTP/1.1 400 Bad Request\0";
+    char *malformed = "HTTP/1.1 400 Bad Request\r\n";
     rc1 = send(client_sock, malformed, strlen(malformed), 0);
     if (rc1 == -1)
     {
         fprintf(stderr, "%s", strerror(errno)); // error check and close
-        close(client_sock);
+       return;
     }
 
 
@@ -383,57 +390,80 @@ void process_request(int client_sock)
 
 void handle_get_request(int client_sock, const char *path)
 {
-
-
+//char notfoundheader[] = "HTTP/1.1 400 Not Found\0";
+  //  char foundheader[] = "HTTP/1.1 200 OK\0";
+//char unsupportedheader[] = "HTTP/1.1 415 Unsupported Media Type\0";
     // TODO: Handle GET request:
     // 1. Map the path to a file.
-    FILE *filepath = NULL;
+    int file;
     printf("About to open file\n");
     if(strcmp(path, "/") == 0) {
-        filepath = fopen("index.html", "r");
-
+        //filepath = fopen("index.html", "r");
+        file = open("www/index.html", O_RDONLY);
     }else {
-        prinf("about to use path pointer variable\n");
-        filepath = fopen(path, "r");
+        printf("about to use path pointer variable:%s\n", path);
+        //filepath = fopen(path, "r");
+        file = open(path, O_RDONLY);
     }
-
-    char *header = NULL;
+    char header[BUFFER_SIZE] = {0};
     // 2. Check if the file exists.
-    if (filepath == NULL) // if the file does not exist, set the not found header.
+    if (file == -1) // if the file does not exist, set the not found header.
     {
-        printf("about to copy file not found header\n");
+        fprintf(stderr, "error opening file: %s\n", strerror(errno));
         strcpy(header, "HTTP/1.1 400 Not Found\n\r");
-        printf("couldn't find file\n");
+        int rc = send(client_sock, header, sizeof(header), 0);
+        if(rc ==-1) {
+            return;
+        }
+        printf("confirming header copied succesffuly: %s\n", header);
     }
-
     else { // file was found
-        printf("about to copy file found header");
-        strcpy(header, "HTTP/1.1 200 OK\n\r");
-        printf("copied file found header\n");
+        strcpy(header, "HTTP/1.1 200 OK\r\n");
+        printf("copied file found header: %s\n", header);
     }
     // 3. Read the file and send it with an appropriate response header.
-    char *line = NULL; //body
-    size_t len = 0;
-    ssize_t nread; //number of bytes read
-    printf("attempting to read file\n");
-    while ((nread = getline(&line, &len, filepath)) != -1)
-    {
-        printf("Retrieved line of length %zd:\n", nread);
-        //fwrite(line, nread, 1, stdout); //instead of here, in send_response
-        const char *mime_type = get_mime_type(path);
-        printf("succesfully parsed mimetype\n");
-        if(strcmp(mime_type, "notsupported") == 0) { // if we don't recognize the file extension
-            strcpy(header,  "HTTP/1.1 415 Unsupported Media Type\n\r"); //self explanatory
+    char line[BUFFER_SIZE] = {0};
+    size_t count = BUFFER_SIZE - 1;
+    ssize_t n = read(file, line, count); // i don't believe a loop is necessary.
+    if(n == -1){ // error check: if read failed, send internal server error.
+        fprintf(stderr, "%s\n", strerror(errno)); //log the error.
+        //strcpy(header, "HTTP/1.1 500 Internal Server Error\n\r"); // prepare header and send to client.
+        char internalerror[] = "HTTP/1.1 500 Internal Server Error\r\n";
+        int rc = send(client_sock, internalerror, sizeof(internalerror), 0);
+        {
+            if(rc == -1) {
+                fprintf(stderr, "%s\n", strerror(errno));
+            }
         }
-        strcat(header, "Access-Control-Allow-Origin: *\n\rConnection : Keep-Alive\n\rContent-Encoding : gzip\n\rContent-Type : text/html; charset=utf-8\n\r");
-
-        send_response(client_sock, header, mime_type, line, nread);
+        return; // return, and close the socket
     }
-    printf("exited loop\n");
-    free(line);
-    fclose(filepath);
 
+    /*while ((nread = getline(&line, &len, filepath)) != -1)
+    //{
+    //    printf("Retrieved line: %s\n", line);
+    //    //fwrite(line, nread, 1, stdout); //instead of here, in send_response
+    }
+    */
+
+    //attempting to parse the mime type
+     const char *mime_type = get_mime_type(path);
+    printf("succesfully parsed mimetype: %s\n", mime_type);
+    if(strcmp(mime_type, "notsupported") == 0) { // if we don't recognize the file extension
+        strcpy(header,  "HTTP/1.1 415 Unsupported Media Type\r\n"); //self explanatory
+            //header = unsupportedheader;q
+    }
+    strcat(header, "Access-Control-Allow-Origin: *\r\nConnection: Keep-Alive\r\n");
     // build response;
+    send_response(client_sock, header, mime_type, line, n);
+
+   //free(line); not needed anymore cus I'm not using getline
+    if(close(file) != 0) {
+        close(client_sock);
+        fprintf(stderr, "error closing File: %s\n", strerror(errno));
+        exit(1);
+    }
+
+
 
 }
 
@@ -455,61 +485,89 @@ void send_response(int client_sock, const char *header, const char *content_type
     // TODO: Compile and send a full HTTP response.
     // Include the header, content type, body, and any other necessary HTTP headers.
     //compile response
-    char *response = NULL;
+    int total_length = sizeof(header) + body_length + strlen(content_type);
+    printf("%i\n",total_length);
+    char response[BUFFER_SIZE] = {0};
+    //char *res = (char *)malloc(total_length);
+    //if(res == NULL) {
+      //  return;
+    //}
+    //printf("%sContent-Length: %i\r\nContent-Type: %s\r\n\r\n%s", header, total_length, content_type, body);
+    //print the headers, body into a buffer. (I've been clawing at the walls trying to get this to work and figured maybe strcat is messing it up)
+    //snprintf(res, total_length + 1, "%s\r\nContent-Length: %i\r\nContent-Type: %s\r\n\r\n%s", header, total_length, content_type, body);
+
     strcpy(response,header);
-    strcpy(response, content_type);
-    strcpy(response, "\r\n\r\n");
-    strcpy(response, body);
-    ssize_t bytessent = send(client_sock, response, sizeof(response), 0);
+    //build content-length header,
+   // char lengthheader[50] ={0};
+   // snprintf(lengthheader, 49, "Content-Length: %i\r\n", total_length);
+    //strcat(response, lengthheader); //insert content-length header.
+    strcat(response, content_type);//insert content type header
+    strcat(response, "\r\n\r\n");
+    strcat(response, body);
+    printf("final request:\n");
+    printf("%s\n", response);
+
+    ssize_t bytessent = write(client_sock, response, total_length + 1);
+    printf("%lu\n", bytessent);
+    if(bytessent < total_length + 1) {
+        bytessent = write(client_sock, response + bytessent, total_length + 1);
+        printf("%lu\n", bytessent);
+    }
     if(bytessent == -1) { //error check
         fprintf(stderr, "an error occurred while sending a response to client with socket: %i\n", client_sock);
-        char *errorresponse = "HTTP/1.1 500 Internal Server Error\n\0";
+        char *errorresponse = "HTTP/1.1 500 Internal Server Error\r\n";
         bytessent = send(client_sock, errorresponse, sizeof(errorresponse), 0); //inform the user of error
         if(bytessent == -1) { //  critical error, shutdown. TODO(false belief of error could be triggered by client closing the connection before sending)
             fprintf(stderr, "an error occurred while trying to inform the client of an internal server error. Line: 414\n");
+            close(client_sock);
             exit(1);
         }
     }
-
+    //free(res);
+    printf("sent successfully\n");
 }
+
 
 const char *get_mime_type(const char *filename)
 {
     // TODO: Return the MIME type based on the file extension.
-    if (strstr(filename, ".png") == 0)
+    if (strstr(filename, ".png") != NULL)
     {
-        char *png = "image/png";
-        return png;
+        return "Content-Type: image/png\n\0";
+
     }
-    if (strstr(filename, ".jpg"))
+    if(strcmp(filename, "/") == 0) {
+        return "Content-Type: text/html\r\n";
+    }
+    if (strstr(filename, ".jpg")!= NULL)
     {
-        char *jpeg = "image/jpeg";
-        return jpeg;
+        return "Content-Type: image/jpeg";
+
     }
-    if (strstr(filename, ".html"))
+    if (strstr(filename, ".html")!= NULL)
     {
-        char *jpeg = "text/html";
-        return jpeg;
+        return "Content-Type: text/html\r\n";
+
     }
-    if (strstr(filename, ".js"))
+    if (strstr(filename, ".js")!= NULL)
     {
-        char *jpeg = "application/javascript";
-        return jpeg;
+        return "Content-Type: application/javascript\n\0";
+
     }
-    if (strstr(filename, ".gif"))
+    if (strstr(filename, ".gif")!= NULL)
     {
-        char *jpeg = "image/gif";
-        return jpeg;
+        return "Content-Type: image/gif\n\0";
+
     }
-    if (strstr(filename, ".txt"))
+    if (strstr(filename, ".txt")!= NULL)
     {
-        char *jpeg = "text/plain";
-        return jpeg;
+
+        return "Content-Type: text/plain; charset=utf-8\n\0";
     }
-    if (strstr(filename, ".css"))
+    if (strstr(filename, ".css")!= NULL)
     {
-        char *jpeg = "text/css";
-        return jpeg;
+
+        return "Content-Type: text/css\n\0";
     }
-    return "notsupported";
+    return "notsupported\n\0";
 }

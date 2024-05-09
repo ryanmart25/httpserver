@@ -7,6 +7,10 @@
 #include "httpserve.h"
 #include <arpa/inet.h>
 #include <errno.h>
+#include <sys/types.h>
+       #include <sys/stat.h>
+       #include <fcntl.h>
+
 int findAString(void *buffer, char *msg, size_t n)
 {
 
@@ -20,8 +24,82 @@ int findAString(void *buffer, char *msg, size_t n)
         return 0;
     }
 }
+const char *get_file_name( char *path) {
+        int i = 0;
+        char *npath = path;
+        char *lastslash = NULL;
+        for(i = 0; path[i] != '\0'; i++) {
+            if(path[i] == '/') {
+                lastslash = npath + i;
+            }
+        }
+        return lastslash;
+    }
+const char *get_mime_type(const char *filename)
+{
+    // TODO: Return the MIME type based on the file extension.
+    if (strstr(filename, ".png") != NULL)
+    {
+        return "image/png\n\0";
+
+    }
+    if (strstr(filename, ".jpg")!= NULL)
+    {
+        return "image/jpeg\n\0";
+
+    }
+    if (strstr(filename, ".html")!= NULL)
+    {
+        return "text/html\n\0";
+
+    }
+    if (strstr(filename, ".js")!= NULL)
+    {
+        return "application/javascript\n\0";
+
+    }
+    if (strstr(filename, ".gif")!= NULL)
+    {
+   return "image/gif\n\0";
+
+    }
+    if (strstr(filename, ".txt")!= NULL)
+    {
+
+        return "text/plain\n\0";
+    }
+    if (strstr(filename, ".css")!= NULL)
+    {
+
+        return "text/css\n\0";
+    }
+    return "notsupported\n\0";
+}
 int main(int argc, char *argv[])
 {
+    printf("starting...\n");
+    const char *mime_type = get_mime_type(argv[1]);
+    printf("type: %s\n\n", mime_type);
+     char line[BUFFER_SIZE] = {0};
+     size_t count = BUFFER_SIZE - 1;
+     int fd = open(argv[1], O_RDONLY);
+    if(fd == -1){
+        fprintf(stdout, "%s\n", strerror(errno));
+        return -1;
+    }
+     ssize_t n = read(fd, line, count);
+    if(n == -1){
+        fprintf(stderr, "%s\n", strerror(errno));
+        return -1;
+    }
+    if(close(fd) == -1){
+        fprintf(stderr, "%s\n", strerror(errno));
+        exit(1);
+    }
+    printf("type: %s\n\n%s\n\nExiting...", mime_type, line);
+    return 0;
+
+}
     //char *string = "GET / HTTP/1.1\0";
     //char *path = strchr(string, '/');
     //int i;
@@ -35,20 +113,20 @@ int main(int argc, char *argv[])
     //    }
     //}
 
-    char sa[] = "GET /index.html HTTP/1.1\0";
+   //char sa[] = "GET /index.html HTTP/1.1\0";
+   //
+   //
+   //    char *path = strchr(sa, '/');
+   //    char *endofpath = strchr(path, ' ');
+   //    *endofpath = 0;
+   //    char *version = endofpath + 1;
+   //    char *sp = sa;
+   //    char *endofmethod = strchr(sa, ' ');
+   //     *endofmethod = 0;
+   //    printf("method: %s, path: %s, version: %s.\n", sa, path, version);
+   //    return 0;
 
 
-        char *path = strchr(sa, '/');
-        char *endofpath = strchr(path, ' ');
-        *endofpath = 0;
-        char *version = endofpath + 1;
-        char *sp = sa;
-        char *endofmethod = strchr(sa, ' ');
-         *endofmethod = 0;
-        printf("method: %s, path: %s, version: %s.\n", sa, path, version);
-        return 0;
-
-    return 0;
     //hit[(int) (strchr(hit, ' ') - hit)] = 0;
 
     //char *hit = strstr(string, "/");
@@ -70,7 +148,7 @@ int main(int argc, char *argv[])
     //}
     //fprintf(stdout, "Result of find: %i\n", findAString(buffer, "GET ", 4));
     //exit(0);
-}
+
 
 /*
 int readAndCompare(int fd)
